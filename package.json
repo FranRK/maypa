@@ -2,6 +2,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "node scripts/dev-local.mjs",
+    "seed:local": "node scripts/seed-local.mjs",
+    "test:auth": "node --test tests/authorization.test.mjs",
+    "test:auth:local": "node scripts/probar-auth-local.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint ."

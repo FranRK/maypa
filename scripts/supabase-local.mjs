@@ -30,7 +30,14 @@ export function localTarget() {
   if (!container.State.Running ||
     !container.NetworkSettings.Ports["5432/tcp"]?.some((port) => port.HostPort === "54322")
   ) throw new Error("El contenedor local no publica el puerto esperado");
-  return { url: data.DB_URL, safe: {
+  const api = new URL(data.API_URL);
+  if (api.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(api.hostname) || api.port !== "54321") {
+    throw new Error("La API Auth debe ser exclusivamente local");
+  }
+  return { url: data.DB_URL, api: data.API_URL,
+    publicKey: data.PUBLISHABLE_KEY || data.ANON_KEY,
+    adminKey: data.SECRET_KEY || data.SERVICE_ROLE_KEY,
+    safe: {
     host: url.hostname, port: url.port, database: "postgres", user: url.username,
     container: "supabase_db_stock-manager",
   }};
