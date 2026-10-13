@@ -1,13 +1,242 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["public"]
+}
+
+enum RolMiembro {
+  PROPIETARIO
+  ADMINISTRADOR
+  EMPLEADO
+
+  @@schema("public")
+}
+
+enum EstadoVenta {
+  BORRADOR
+  CONFIRMADA
+  CANCELADA
+  DEVOLUCION_PARCIAL
+  DEVUELTA
+
+  @@schema("public")
+}
+
+enum TipoMovimiento {
+  INICIAL
+  COMPRA
+  VENTA
+  AJUSTE
+  ANULACION_VENTA
+  DEVOLUCION
+
+  @@schema("public")
+}
+
+model Perfil {
+  id       String   @id @db.Uuid
+  creadoEn DateTime @default(now())
+
+  // La FK hacia auth.users(id) se conserva en el SQL personalizado.
+  membresias MiembroOrganizacion[]
+
+  @@schema("public")
+}
+
+model Organizacion {
+  id       String   @id @default(uuid()) @db.Uuid
+  nombre   String
+  slug     String   @unique
+  creadaEn DateTime @default(now())
+
+  miembros     MiembroOrganizacion[]
+  productos    Producto[]
+  saldos       SaldoStock[]
+  movimientos  MovimientoStock[]
+  ventas       Venta[]
+  devoluciones DevolucionVenta[]
+
+  @@schema("public")
+}
+
+model MiembroOrganizacion {
+  organizacionId String     @db.Uuid
+  usuarioId      String     @db.Uuid
+  rol            RolMiembro @default(EMPLEADO)
+  creadoEn       DateTime   @default(now())
+  activa         Boolean    @default(true)
+  bajaEn         DateTime?
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  perfil       Perfil       @relation(fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  ventasCreadas       Venta[]           @relation("CreadorVenta")
+  movimientosCreados  MovimientoStock[] @relation("AutorMovimiento")
+  devolucionesCreadas DevolucionVenta[] @relation("CreadorDevolucion")
+
+  @@id([organizacionId, usuarioId])
+  @@index([usuarioId])
+  @@schema("public")
+}
+
+model Producto {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizacionId String   @db.Uuid
+  sku            String
+  nombre         String
+  unidad         String   @default("unidad")
+  precioVenta    Decimal  @db.Decimal(14, 2)
+  stockMinimo    Decimal  @default(0) @db.Decimal(14, 3)
+  activo         Boolean  @default(true)
+  creadoEn       DateTime @default(now())
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  saldos             SaldoStock[]
+  movimientos        MovimientoStock[]
+  detallesVenta      DetalleVenta[]
+  detallesDevolucion DetalleDevolucion[]
+
+  @@unique([organizacionId, sku])
+  @@unique([organizacionId, id])
+  @@schema("public")
+}
+
+model SaldoStock {
+  organizacionId String   @db.Uuid
+  productoId     String   @db.Uuid
+  cantidad       Decimal  @default(0) @db.Decimal(14, 3)
+  actualizadoEn  DateTime @updatedAt
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  producto     Producto     @relation(fields: [organizacionId, productoId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([organizacionId, productoId])
+  @@schema("public")
+}
+
+model Venta {
+  id                String      @id @default(uuid()) @db.Uuid
+  organizacionId    String      @db.Uuid
+  creadaPor         String      @db.Uuid
+  estado            EstadoVenta @default(BORRADOR)
+  total             Decimal     @default(0) @db.Decimal(14, 2)
+  claveIdempotencia String
+  huellaSolicitud   String      @db.Char(64)
+  creadaEn          DateTime    @default(now())
+  confirmadaEn      DateTime?
+
+  organizacion Organizacion        @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creador      MiembroOrganizacion @relation("CreadorVenta", fields: [organizacionId, creadaPor], references: [organizacionId, usuarioId], onDelete: Restrict, onUpdate: Restrict)
+  detalles     DetalleVenta[]
+  devoluciones DevolucionVenta[]
+
+  @@unique([organizacionId, id])
+  @@unique([organizacionId, claveIdempotencia])
+  @@index([organizacionId, creadaEn])
+  @@index([organizacionId, creadaPor])
+  @@schema("public")
+}
+
+model DetalleVenta {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizacionId String  @db.Uuid
+  ventaId        String  @db.Uuid
+  productoId     String  @db.Uuid
+  cantidad       Decimal @db.Decimal(14, 3)
+  precioUnitario Decimal @db.Decimal(14, 2)
+  subtotal       Decimal @db.Decimal(14, 2)
+
+  venta              Venta               @relation(fields: [organizacionId, ventaId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+  producto           Producto            @relation(fields: [organizacionId, productoId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+  movimientos        MovimientoStock[]
+  detallesDevolucion DetalleDevolucion[]
+
+  @@unique([organizacionId, id])
+  @@unique([organizacionId, id, productoId])
+  @@unique([organizacionId, ventaId, id, productoId])
+  @@unique([organizacionId, ventaId, productoId])
+  @@index([organizacionId, ventaId])
+  @@index([organizacionId, productoId])
+  @@schema("public")
+}
+
+model MovimientoStock {
+  id                     String         @id @default(uuid()) @db.Uuid
+  organizacionId         String         @db.Uuid
+  productoId             String         @db.Uuid
+  usuarioId              String         @db.Uuid
+  tipo                   TipoMovimiento
+  variacion              Decimal        @db.Decimal(14, 3)
+  nota                   String?
+  creadoEn               DateTime       @default(now())
+  detalleVentaId         String?        @db.Uuid
+  detalleDevolucionId    String?        @db.Uuid
+  movimientoCompensadoId String?        @db.Uuid
+
+  organizacion Organizacion        @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  producto     Producto            @relation(fields: [organizacionId, productoId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+  autor        MiembroOrganizacion @relation("AutorMovimiento", fields: [organizacionId, usuarioId], references: [organizacionId, usuarioId], onDelete: Restrict, onUpdate: Restrict)
+
+  detalleVenta      DetalleVenta?      @relation(fields: [organizacionId, detalleVentaId, productoId], references: [organizacionId, id, productoId], onDelete: Restrict, onUpdate: Restrict)
+  detalleDevolucion DetalleDevolucion? @relation(fields: [organizacionId, detalleDevolucionId, productoId], references: [organizacionId, id, productoId], onDelete: Restrict, onUpdate: Restrict)
+
+  movimientoCompensado MovimientoStock?  @relation("CompensacionMovimiento", fields: [organizacionId, productoId, movimientoCompensadoId], references: [organizacionId, productoId, id], onDelete: Restrict, onUpdate: Restrict)
+  compensaciones       MovimientoStock[] @relation("CompensacionMovimiento")
+
+  @@unique([organizacionId, productoId, id])
+  @@unique([organizacionId, detalleVentaId, tipo])
+  @@unique([organizacionId, detalleDevolucionId])
+  @@index([organizacionId, creadoEn])
+  @@index([organizacionId, productoId, creadoEn])
+  @@index([organizacionId, usuarioId, creadoEn])
+  @@schema("public")
+}
+
+model DevolucionVenta {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizacionId    String   @db.Uuid
+  ventaId           String   @db.Uuid
+  creadaPor         String   @db.Uuid
+  claveIdempotencia String
+  huellaSolicitud   String   @db.Char(64)
+  motivo            String?
+  creadaEn          DateTime @default(now())
+
+  organizacion Organizacion        @relation(fields: [organizacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venta        Venta               @relation(fields: [organizacionId, ventaId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+  creador      MiembroOrganizacion @relation("CreadorDevolucion", fields: [organizacionId, creadaPor], references: [organizacionId, usuarioId], onDelete: Restrict, onUpdate: Restrict)
+  detalles     DetalleDevolucion[]
+
+  @@unique([organizacionId, id])
+  @@unique([organizacionId, id, ventaId])
+  @@unique([organizacionId, claveIdempotencia])
+  @@index([organizacionId, ventaId, creadaEn])
+  @@index([organizacionId, creadaPor])
+  @@schema("public")
+}
+
+model DetalleDevolucion {
+  id                String  @id @default(uuid()) @db.Uuid
+  organizacionId    String  @db.Uuid
+  devolucionVentaId String  @db.Uuid
+  ventaId           String  @db.Uuid
+  detalleVentaId    String  @db.Uuid
+  productoId        String  @db.Uuid
+  cantidad          Decimal @db.Decimal(14, 3)
+
+  devolucionVenta DevolucionVenta   @relation(fields: [organizacionId, devolucionVentaId, ventaId], references: [organizacionId, id, ventaId], onDelete: Restrict, onUpdate: Restrict)
+  detalleVenta    DetalleVenta      @relation(fields: [organizacionId, ventaId, detalleVentaId, productoId], references: [organizacionId, ventaId, id, productoId], onDelete: Restrict, onUpdate: Restrict)
+  producto        Producto          @relation(fields: [organizacionId, productoId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
+  movimientos     MovimientoStock[]
+
+  @@unique([organizacionId, id])
+  @@unique([organizacionId, id, productoId])
+  @@unique([organizacionId, devolucionVentaId, detalleVentaId])
+  @@index([organizacionId, detalleVentaId])
+  @@schema("public")
 }

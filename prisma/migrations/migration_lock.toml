@@ -1,0 +1,2 @@
+# No modificar manualmente el proveedor del historial.
+provider = "postgresql"
