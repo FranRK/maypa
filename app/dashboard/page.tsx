@@ -39,6 +39,8 @@ async function DashboardContent({ searchParams }: Props) {
           <div><dt className="text-muted-foreground">Usuario</dt><dd>{user.email ?? user.id}</dd></div>
           <div><dt className="text-muted-foreground">Rol</dt><dd>{membership.rol}</dd></div>
         </dl>
+        <Link href={`/productos?organizacion=${organizacion.id}`} className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Administrar productos</Link>
+        <Link href={`/inventario?organizacion=${organizacion.id}`} className="ml-3 mt-3 inline-block rounded-md border px-4 py-2 text-sm font-medium">Ver inventario</Link>
       </section>
     </main>
   );

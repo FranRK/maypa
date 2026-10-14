@@ -6,6 +6,8 @@
     "seed:local": "node scripts/seed-local.mjs",
     "test:auth": "node --test tests/authorization.test.mjs",
     "test:auth:local": "node scripts/probar-auth-local.mjs",
+    "test:productos:local": "node --import ./scripts/resolve-typescript.mjs scripts/probar-productos-local.mjs",
+    "test:inventario:local": "node --import ./scripts/resolve-typescript.mjs scripts/probar-inventario-local.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint ."

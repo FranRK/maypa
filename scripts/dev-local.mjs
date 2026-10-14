@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { localTarget } from "./supabase-local.mjs";
+import { dockerLocalTarget } from "./docker-local-target.mjs";
 
-const target = localTarget();
+const target = process.argv.includes("--docker") ? dockerLocalTarget() : localTarget();
 if (!target.publicKey) throw new Error("Supabase local no devolvio una clave publica");
 console.log("Next.js local:", JSON.stringify(target.safe));
 const child = spawn("npx next dev --hostname 127.0.0.1 --port 3000", {
