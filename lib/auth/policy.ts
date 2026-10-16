@@ -8,7 +8,7 @@ export type Membresia = {
   rol: RolMiembro;
   organizacion: { id: string; nombre: string; slug: string };
 };
-export type Permiso = "VER_DASHBOARD" | "ADMINISTRAR_ORGANIZACION" | "VER_PRODUCTOS" | "ADMINISTRAR_PRODUCTOS" | "VER_INVENTARIO" | "ADMINISTRAR_INVENTARIO";
+export type Permiso = "VER_DASHBOARD" | "ADMINISTRAR_ORGANIZACION" | "VER_PRODUCTOS" | "ADMINISTRAR_PRODUCTOS" | "VER_INVENTARIO" | "ADMINISTRAR_INVENTARIO" | "VER_VENTAS" | "REGISTRAR_VENTAS";
 export type CodigoAutorizacion = "NO_AUTENTICADO" | "SIN_ORGANIZACION" | "ACCESO_DENEGADO" | "ROL_INSUFICIENTE";
 
 export class AutorizacionError extends Error {
@@ -23,7 +23,7 @@ export class AutorizacionError extends Error {
 export function permiteOperacion(rol: RolMiembro, permiso: Permiso) {
   if (permiso === "ADMINISTRAR_ORGANIZACION") return rol === "PROPIETARIO";
   if (["ADMINISTRAR_PRODUCTOS", "ADMINISTRAR_INVENTARIO"].includes(permiso)) return ["PROPIETARIO", "ADMINISTRADOR"].includes(rol);
-  return ["VER_DASHBOARD", "VER_PRODUCTOS", "VER_INVENTARIO"].includes(permiso) && ["PROPIETARIO", "ADMINISTRADOR", "EMPLEADO"].includes(rol);
+  return ["VER_DASHBOARD", "VER_PRODUCTOS", "VER_INVENTARIO", "VER_VENTAS", "REGISTRAR_VENTAS"].includes(permiso) && ["PROPIETARIO", "ADMINISTRADOR", "EMPLEADO"].includes(rol);
 }
 
 // Las dependencias se vinculan exclusivamente en el modulo server-only.

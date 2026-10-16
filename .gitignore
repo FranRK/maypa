@@ -42,3 +42,10 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma/
+# Prisma agent skills (auto-generadas por `prisma init` / `npx skills add prisma/skills`)
+/.agents/
+/.claude/
+/.cursor/
+/.devin/
+/.windsurf/
+/skills-lock.json

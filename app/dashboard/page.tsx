@@ -41,6 +41,7 @@ async function DashboardContent({ searchParams }: Props) {
         </dl>
         <Link href={`/productos?organizacion=${organizacion.id}`} className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Administrar productos</Link>
         <Link href={`/inventario?organizacion=${organizacion.id}`} className="ml-3 mt-3 inline-block rounded-md border px-4 py-2 text-sm font-medium">Ver inventario</Link>
+        <Link href={`/ventas?organizacion=${organizacion.id}`} className="ml-3 mt-3 inline-block rounded-md border px-4 py-2 text-sm font-medium">Registrar ventas</Link>
       </section>
     </main>
   );

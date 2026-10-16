@@ -8,6 +8,7 @@
     "test:auth:local": "node scripts/probar-auth-local.mjs",
     "test:productos:local": "node --import ./scripts/resolve-typescript.mjs scripts/probar-productos-local.mjs",
     "test:inventario:local": "node --import ./scripts/resolve-typescript.mjs scripts/probar-inventario-local.mjs",
+    "test:ventas:local": "node --import ./scripts/resolve-typescript.mjs scripts/probar-ventas-local.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint ."

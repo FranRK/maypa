@@ -3,17 +3,10 @@ import { z } from "zod";
 import type { PrismaClient } from "../../src/generated/prisma/client";
 import type { exigirOrganizacion } from "../auth/server";
 
-export class InventarioError extends Error {}
-export function milesimas(valor: string): bigint {
-  const negativo = valor.startsWith("-");
-  const [entero, fraccion = ""] = valor.replace(/^-/, "").split(".");
-  const cantidad = BigInt(entero) * BigInt(1000) + BigInt(fraccion.padEnd(3, "0"));
-  return negativo ? -cantidad : cantidad;
-}
-export function decimalStock(valor: bigint): string {
-  const absoluto = valor < 0 ? -valor : valor;
-  return `${valor < 0 ? "-" : ""}${absoluto / BigInt(1000)}.${String(absoluto % BigInt(1000)).padStart(3, "0")}`;
-}
+import { decimalStock, milesimas } from "./cantidades";
+import { InventarioError, bloquearMembresia, bloquearClave, bloquearProducto, saldoConsistente, actualizarSaldo } from "./transacciones";
+export { InventarioError } from "./transacciones";
+export { decimalStock, milesimas } from "./cantidades";
 const cantidadSchema = z.string().trim().transform(v => v.replace(",", ".")).refine(
   v => /^-?\d{1,11}(?:\.\d{1,3})?$/.test(v) && milesimas(v) !== BigInt(0),
   "Ingresá una cantidad distinta de cero, con hasta 11 enteros y 3 decimales.",
@@ -41,7 +34,7 @@ export const filtrosInventarioSchema = z.object({
 });
 type Decimal = { toString(): string };
 type FilaStock = { id: string; sku: string; nombre: string; unidad: string; activo: boolean; cantidad: Decimal; stockMinimo: Decimal; bajo: boolean };
-const MAX_STOCK = BigInt("99999999999999");
+
 
 export function crearServicioInventario(db: PrismaClient, autorizar: typeof exigirOrganizacion) {
   async function escrituraDisponible() {
@@ -102,36 +95,21 @@ export function crearServicioInventario(db: PrismaClient, autorizar: typeof exig
       const variacion = decimalStock(milesimas(data.cantidad));
       const huella = createHash("sha256").update(JSON.stringify([org, context.user.id, data.productoId, data.tipo, variacion, data.nota])).digest("hex");
       return db.$transaction(async tx => {
-        const miembros = await tx.$queryRaw<{ activa: boolean; rol: string }[]>`
-          SELECT activa,rol FROM public."MiembroOrganizacion"
-          WHERE "organizacionId"=${org}::uuid AND "usuarioId"=${context.user.id}::uuid FOR SHARE`;
-        if (!miembros[0]?.activa || !["PROPIETARIO", "ADMINISTRADOR"].includes(miembros[0].rol)) throw new InventarioError("Tu membresía no permite registrar movimientos.");
-        // Serializar la misma clave incluso cuando todavía no existe su fila.
-        await tx.$queryRaw`SELECT 1 AS bloqueado FROM pg_advisory_xact_lock(hashtextextended(${`${org}:${data.claveIdempotencia}`},0))`;
+        await bloquearMembresia(tx, org, context.user.id, "ADMINISTRAR_INVENTARIO");
+        await bloquearClave(tx, `${org}:${data.claveIdempotencia}`);
         const anterior = await tx.movimientoStock.findUnique({ where: { organizacionId_claveIdempotencia: { organizacionId: org, claveIdempotencia: data.claveIdempotencia } } });
         if (anterior) {
           if (anterior.huellaSolicitud !== huella) throw new InventarioError("La clave de reintento ya fue utilizada para otra operación.");
           return { id: anterior.id, repetido: true };
         }
-        // El producto siempre existe: bloquearlo resuelve también el caso sin saldo.
-        const productos = await tx.$queryRaw<{ activo: boolean }[]>`
-          SELECT activo FROM public."Producto" WHERE "organizacionId"=${org}::uuid AND id=${data.productoId}::uuid FOR UPDATE`;
-        if (!productos[0]?.activo) throw new InventarioError("Producto inactivo o no disponible en esta organización.");
+        await bloquearProducto(tx, org, data.productoId);
         const key = { organizacionId: org, productoId: data.productoId };
         if (data.tipo === "INICIAL" && await tx.movimientoStock.count({ where: key })) throw new InventarioError("El stock inicial solo puede ser el primer movimiento del producto.");
-        await tx.saldoStock.upsert({ where: { organizacionId_productoId: key }, create: { ...key, cantidad: "0" }, update: {} });
-        const [saldo] = await tx.$queryRaw<{ cantidad: Decimal }[]>`
-          SELECT cantidad FROM public."SaldoStock" WHERE "organizacionId"=${org}::uuid AND "productoId"=${data.productoId}::uuid FOR UPDATE`;
-        const historial = await tx.movimientoStock.aggregate({ where: key, _sum: { variacion: true } });
-        if (milesimas(saldo.cantidad.toString()) !== milesimas(historial._sum.variacion?.toString() ?? "0")) {
-          throw new InventarioError("El saldo no coincide con el historial. Requiere revisión antes de registrar movimientos.");
-        }
-        const siguiente = milesimas(saldo.cantidad.toString()) + milesimas(variacion);
-        if (siguiente < BigInt(0)) throw new InventarioError("El movimiento dejaría stock negativo.");
-        if (siguiente > MAX_STOCK) throw new InventarioError("El saldo supera la precisión permitida.");
+        const saldo = await saldoConsistente(tx, org, data.productoId);
+        const siguiente = saldo + milesimas(variacion);
+        await actualizarSaldo(tx, org, data.productoId, siguiente);
         const movimiento = await tx.movimientoStock.create({ data: { ...key, usuarioId: context.user.id, tipo: data.tipo, variacion, nota: data.nota || null,
           claveIdempotencia: data.claveIdempotencia, huellaSolicitud: huella } });
-        await tx.saldoStock.update({ where: { organizacionId_productoId: key }, data: { cantidad: decimalStock(siguiente) } });
         return { id: movimiento.id, repetido: false };
       }, { timeout: 15000, maxWait: 15000 });
     },
