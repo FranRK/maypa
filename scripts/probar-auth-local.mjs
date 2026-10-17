@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { localTarget, localClient } from "./supabase-local.mjs";
 import { seedLocalOrganization } from "./seed-local.mjs";
-import { crearAutorizacion, AutorizacionError } from "../lib/auth/policy.ts";
+import { crearAutorizacion, AutorizacionError, evaluarPerfilDesdeFila } from "../lib/auth/policy.ts";
 
 const target = localTarget();
 const base = "http://127.0.0.1:3000";
@@ -12,13 +12,19 @@ console.log("Pruebas Auth/Next exclusivamente locales:", JSON.stringify(target.s
 const admin = createClient(target.api,target.adminKey,{auth:{persistSession:false,autoRefreshToken:false}});
 const db = await localClient(target);
 const users = [], organizations = [];
+// Etapa 10: usuarios ficticios con nombre y apellido explicitos. No se derivan del
+// correo ni son placeholders de personas reales.
+const PERSONA = { nombre: "Prueba", apellido: "Auth" };
 let passed = 0;
 function pass(name) { console.log(`PASS ${++passed}: ${name}`); }
 
 async function createUser() {
   const email = `etapa5-${randomBytes(12).toString("hex")}@example.test`;
   const password = randomBytes(32).toString("base64url");
-  const { data, error } = await admin.auth.admin.createUser({email,password,email_confirm:true});
+  // Igual que el formulario de registro: el nombre y el apellido los declara la
+  // persona y quedan en la metadata de Auth.
+  const { data, error } = await admin.auth.admin.createUser({email,password,email_confirm:true,
+    user_metadata:{nombre:PERSONA.nombre,apellido:PERSONA.apellido}});
   if (error) throw new Error("No se pudo crear la cuenta ficticia en Auth local");
   users.push(data.user.id);
   return { id:data.user.id,email,password };
@@ -46,6 +52,10 @@ async function page(path, session) {
   return {response,html};
 }
 
+// Texto renderizado sin etiquetas ni separadores de React, para afirmar sobre la
+// presentacion y no sobre el marcado.
+const soloTexto = html => html.replace(/<!--[\s\S]*?-->/g,"").replace(/<[^>]*>/g," ");
+
 try {
   const anonymous = await page("/dashboard");
   assert.ok([303,307,308].includes(anonymous.response.status));
@@ -59,14 +69,22 @@ try {
   const userA = await createUser(), userB = await createUser(), noOrg = await createUser();
   const slugA = `prueba-auth-a-${randomBytes(8).toString("hex")}`;
   const slugB = `prueba-auth-b-${randomBytes(8).toString("hex")}`;
-  const seedA = await seedLocalOrganization(target,userA.email,slugA,"Empresa ficticia A");
+  const seedA = await seedLocalOrganization(target,userA.email,slugA,"Empresa ficticia A",PERSONA);
   organizations.push(seedA.organizationId);
-  const seedB = await seedLocalOrganization(target,userB.email,slugB,"Empresa ficticia B");
+  const seedB = await seedLocalOrganization(target,userB.email,slugB,"Empresa ficticia B",PERSONA);
   organizations.push(seedB.organizationId);
-  const again = await seedLocalOrganization(target,userA.email,slugA,"Empresa ficticia A");
+  const again = await seedLocalOrganization(target,userA.email,slugA,"Empresa ficticia A",PERSONA);
   assert.equal(again.organizationId,seedA.organizationId);
   assert.equal((await db.query('SELECT count(*)::int AS count FROM public."MiembroOrganizacion" WHERE "organizacionId"=$1 AND "usuarioId"=$2',[seedA.organizationId,userA.id])).rows[0].count,1);
   pass("Seed repetible: misma organizacion, perfil y membresia sin duplicados");
+
+  // Etapa 10: el nombre y el apellido declarados en el registro llegan a la metadata y
+  // no solo a la respuesta del cliente.
+  const declarado = (await db.query(`SELECT raw_user_meta_data->>'nombre' AS nombre,
+    raw_user_meta_data->>'apellido' AS apellido FROM auth.users WHERE id=$1`,[userA.id])).rows[0];
+  assert.equal(declarado.nombre,PERSONA.nombre);
+  assert.equal(declarado.apellido,PERSONA.apellido);
+  pass("El registro deja el nombre y el apellido declarados en la metadata de Auth");
 
   const sessionA = await signIn(userA), sessionB = await signIn(userB), sessionNone = await signIn(noOrg);
   const withoutOrg = await page("/dashboard",sessionNone);
@@ -75,10 +93,12 @@ try {
   pass("Usuario autenticado sin organizacion queda restringido");
   const owner = await page("/dashboard",sessionA);
   assert.match(owner.html,/Empresa ficticia A/);
-  assert.match(owner.html,/PROPIETARIO/);
+  // Etapa 9: los roles se muestran traducidos al español, no como valor técnico del enum.
+  assert.match(soloTexto(owner.html),/·\s*Propietario/);
+  assert.ok(!soloTexto(owner.html).includes("PROPIETARIO"),"El rol no debe mostrarse como valor tecnico");
   assert.ok(owner.html.includes(userA.email));
   assert.ok(!owner.html.includes("Empresa ficticia B"));
-  pass("Login real + cookies SSR + Prisma: miembro activo ve su organizacion y rol");
+  pass("Login real + cookies SSR + Prisma: miembro activo ve su organizacion y rol traducido");
 
   const foreign = await page(`/dashboard?organizacion=${seedB.organizationId}`,sessionA);
   assert.ok(foreign.response.status===404 || foreign.html.includes("NEXT_HTTP_ERROR_FALLBACK;404") || foreign.html.includes("This page could not be found"));
@@ -97,13 +117,15 @@ try {
   pass("Baja de miembro se aplica en la siguiente peticion, aun con sesion valida");
   await db.query('UPDATE public."MiembroOrganizacion" SET activa=true,"bajaEn"=NULL,rol=\'EMPLEADO\' WHERE "organizacionId"=$1 AND "usuarioId"=$2',[seedA.organizationId,userA.id]);
   const employee = await page("/dashboard",sessionA);
-  assert.match(employee.html,/EMPLEADO/);
+  assert.match(soloTexto(employee.html),/·\s*Empleado/);
+  assert.ok(!soloTexto(employee.html).includes("EMPLEADO"),"El rol no debe mostrarse como valor tecnico");
   const authorization = crearAutorizacion({
     getUser:async()=>{const {data,error}=await sessionA.client.auth.getUser();return error?null:data.user;},
     findMemberships:async id=>(await db.query(`SELECT m."organizacionId",m."usuarioId",m.activa,m.rol,
       json_build_object('id',o.id,'nombre',o.nombre,'slug',o.slug) AS organizacion
       FROM public."MiembroOrganizacion" m JOIN public."Organizacion" o ON o.id=m."organizacionId"
       WHERE m."usuarioId"=$1 AND m.activa`,[id])).rows,
+    evaluarPerfil:async id=>evaluarPerfilDesdeFila((await db.query('SELECT * FROM public."Perfil" WHERE id=$1',[id])).rows[0]),
   });
   await assert.rejects(authorization.exigirOrganizacion(seedA.organizationId,"ADMINISTRAR_ORGANIZACION"),e=>e instanceof AutorizacionError&&e.code==="ROL_INSUFICIENTE");
   pass("Empleado ve dashboard pero no obtiene permiso exclusivo de PROPIETARIO");

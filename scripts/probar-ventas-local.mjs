@@ -6,9 +6,11 @@ import { createServerClient } from "@supabase/ssr";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.ts";
 import { crearAutorizacion } from "../lib/auth/policy.ts";
+import { evaluarPerfilConPrisma } from "../lib/auth/perfil.ts";
 import { crearServicioInventario } from "../lib/inventario/service.ts";
 import { milesimas } from "../lib/inventario/cantidades.ts";
 import { crearServicioVentas, itemsVentaSchema } from "../lib/ventas/service.ts";
+import { formatearImporte } from "../lib/importes.ts";
 import { localTarget, localClient } from "./supabase-local.mjs";
 import { dockerLocalTarget } from "./docker-local-target.mjs";
 import { seedLocalOrganization } from "./seed-local.mjs";
@@ -19,18 +21,22 @@ console.log("Pruebas exclusivamente locales:", JSON.stringify(target.safe));
 const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: target.url, max: 15 }) });
 const admin = createClient(target.api, target.adminKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const users = [], orgs = [];
+// Etapa 10: usuarios ficticios con nombre y apellido explicitos. No se derivan del
+// correo ni son placeholders de personas reales.
+const PERSONA = { nombre: "Prueba", apellido: "Ventas" };
 let passed = 0;
 const pass = message => { passed++; console.log("OK:", message); };
 async function fixture() {
   const email = `ventas-${randomUUID()}@example.test`, password = randomBytes(24).toString("base64url");
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   assert.equal(error, null); users.push(data.user.id);
-  const seed = await seedLocalOrganization(target, email, `ventas-${randomUUID()}`); orgs.push(seed.organizationId);
+  const seed = await seedLocalOrganization(target, email, `ventas-${randomUUID()}`, undefined, PERSONA); orgs.push(seed.organizationId);
   const cookies = new Map();
   const client = createServerClient(target.api, target.publicKey, { cookies: { getAll: () => [...cookies].map(([name,value])=>({ name,value })), setAll: entries => entries.forEach(({name,value})=>cookies.set(name,value)) } });
   assert.equal((await client.auth.signInWithPassword({ email,password })).error,null);
   const auth = crearAutorizacion({ async getUser() { const { data,error } = await client.auth.getUser(); return error ? null : data.user; },
-    findMemberships: usuarioId => db.miembroOrganizacion.findMany({ where: { usuarioId }, include: { organizacion: true } }) });
+    findMemberships: usuarioId => db.miembroOrganizacion.findMany({ where: { usuarioId }, include: { organizacion: true } }),
+    evaluarPerfil: usuarioId => evaluarPerfilConPrisma(db, usuarioId) });
   return { org: seed.organizationId, user: data.user.id, auth, cookies,
     ventas: crearServicioVentas(db,auth.exigirOrganizacion), inventario: crearServicioInventario(db,auth.exigirOrganizacion) };
 }
@@ -113,7 +119,7 @@ try {
     await a.ventas.registrar(a.org,await solicitud(a,[item(q,"0.001")])); assert.ok((await a.ventas.listar(a.org,{})).total>0);
   } pass("Empleado y administrador pueden consultar y registrar ventas");
   await db.miembroOrganizacion.update({where:memberKey,data:{rol:"PROPIETARIO"}});
-  const anon=crearServicioVentas(db,crearAutorizacion({getUser:async()=>null,findMemberships:async()=>{throw Error("No consultar sin sesión");}}).exigirOrganizacion);
+  const anon=crearServicioVentas(db,crearAutorizacion({getUser:async()=>null,findMemberships:async()=>{throw Error("No consultar sin sesión");},evaluarPerfil:async()=>"COMPLETO"}).exigirOrganizacion);
   for(const op of [()=>anon.registrar(a.org,command),()=>anon.listar(a.org,{}),()=>anon.detalle(a.org,first.id),()=>anon.cotizar(a.org,[item(p)]),()=>anon.buscarProductos(a.org,{})]) await assert.rejects(op,e=>e.code==="NO_AUTENTICADO"); pass("Sin sesión: todas las operaciones rechazadas antes de consultar membresías");
   const r=await producto(a),s=await producto(a); const rollbackCommand=await solicitud(a,[item(r),item(s)]); const counts=await conteos(a); let writes=0;
   const failing=db.$extends({query:{movimientoStock:{async create({args,query}){if(args.data.tipo==="VENTA" && ++writes===2)throw Error("Fallo ficticio en segundo movimiento");return query(args);}}}});
@@ -126,7 +132,9 @@ try {
     const unauth=await page("/ventas"); assert.ok([303,307,308].includes(unauth.response.status));
     const own=await page(`/ventas?organizacion=${a.org}`,a); assert.equal(own.response.status,200); assert.ok(own.body.includes("Nueva venta") && own.body.includes("Historial de ventas"));
     assert.ok(!own.body.includes(target.adminKey) && !own.body.includes(target.url));
-    const detail=await page(`/ventas/${first.id}?organizacion=${a.org}`,a); assert.ok(detail.body.includes("5.00") && detail.body.includes("2.50"));
+    const detail=await page(`/ventas/${first.id}?organizacion=${a.org}`,a); assert.ok(detail.body.includes(formatearImporte("5.00")) && detail.body.includes(formatearImporte("2.50")), "El detalle formatea los importes en es-AR/ARS");
+    assert.ok(detail.body.includes(`${PERSONA.nombre} ${PERSONA.apellido} (vos)`), "El detalle muestra nombre y apellido del autor");
+    assert.ok(!detail.body.includes(a.user), "El detalle no expone el UUID del autor");
     const denied=await page(`/ventas/${first.id}?organizacion=${b.org}`,b); assert.ok(!denied.body.includes(p.sku)); pass("HTTP: página y detalle protegidos, aislamiento y ausencia de secretos");
     const ids=await actionIds();
     assert.ok((await action(ids.buscarProductosVenta,a,[a.org,p.sku,1])).includes(p.sku));

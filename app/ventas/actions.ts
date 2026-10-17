@@ -12,6 +12,7 @@ export type EstadoVenta = { id?: string; mensaje?: string; incierto?: boolean };
 function errorSeguro(error: unknown): string | undefined {
   if (error instanceof z.ZodError) return error.issues.map(i => i.message).join(" ");
   if (error instanceof VentaError || error instanceof InventarioError) return error.message;
+  if (error instanceof AutorizacionError && error.code === "PERFIL_INCOMPLETO") return "Tu perfil no tiene nombre y apellido cargados: completalos para poder operar.";
   if (error instanceof AutorizacionError) return "No tenés una sesión o membresía activa con permisos.";
 }
 export async function buscarProductosVenta(org: string, buscar: string, pagina: number) {

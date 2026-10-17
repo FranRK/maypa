@@ -5,7 +5,9 @@ import { createServerClient } from "@supabase/ssr";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.ts";
 import { crearAutorizacion } from "../lib/auth/policy.ts";
+import { evaluarPerfilConPrisma } from "../lib/auth/perfil.ts";
 import { crearServicioProductos, productoSchema } from "../lib/productos/service.ts";
+import { formatearImporte } from "../lib/importes.ts";
 import { localTarget } from "./supabase-local.mjs";
 import { seedLocalOrganization } from "./seed-local.mjs";
 
@@ -14,6 +16,9 @@ console.log("Destino exclusivo local:", JSON.stringify(target.safe));
 const admin = createClient(target.api, target.adminKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: target.url }) });
 const users = [], orgs = [];
+// Etapa 10: usuarios ficticios con nombre y apellido explicitos. No se derivan del
+// correo ni son placeholders de personas reales.
+const PERSONA = { nombre: "Prueba", apellido: "Productos" };
 let passed = 0;
 function pass(message) { console.log("OK:", message); passed++; }
 const data = { sku: "SKU-PRUEBA", nombre: "Producto de prueba", unidad: "unidad", precioVenta: "12.50", stockMinimo: "1.250" };
@@ -49,7 +54,7 @@ async function fixture() {
   const email = `productos-${randomUUID()}@example.test`, password = randomBytes(24).toString("base64url");
   const { data: created, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   assert.equal(error, null); users.push(created.user.id);
-  const seed = await seedLocalOrganization(target, email, `productos-${randomUUID()}`);
+  const seed = await seedLocalOrganization(target, email, `productos-${randomUUID()}`, undefined, PERSONA);
   orgs.push(seed.organizationId);
   const cookies = new Map();
   const client = createServerClient(target.api, target.publicKey, { cookies: {
@@ -60,6 +65,7 @@ async function fixture() {
   const authorization = crearAutorizacion({
     async getUser() { const { data, error } = await client.auth.getUser(); return error ? null : data.user; },
     findMemberships: userId => db.miembroOrganizacion.findMany({ where: { usuarioId: userId }, include: { organizacion: true } }),
+    evaluarPerfil: userId => evaluarPerfilConPrisma(db, userId),
   });
   return { org: seed.organizationId, user: created.user.id, cookies, service: crearServicioProductos(db, authorization.exigirOrganizacion) };
 }
@@ -72,7 +78,7 @@ try {
   if (http) {
     const anon = await page("/productos"); assert.ok([303,307,308].includes(anon.response.status));
     const own = await page(`/productos?organizacion=${a.org}`, a);
-    assert.ok(own.body.includes("SKU-PRUEBA") && own.body.includes("Crear producto") && own.body.includes("Editar producto"));
+    assert.ok(own.body.includes("SKU-PRUEBA") && own.body.includes("Crear producto") && own.body.includes("Editar producto") && own.body.includes(formatearImporte("12.50")));
     const foreign = await page(`/productos?organizacion=${b.org}`, a);
     assert.ok(!foreign.body.includes("SKU-PRUEBA"));
     assert.ok(!own.body.includes(target.adminKey) && !own.body.includes(target.url));
@@ -127,7 +133,7 @@ try {
   assert.equal((await a.service.listar(a.org, { estado: "activos" })).total, 11); pass("Filtros activo e inactivo");
   await db.miembroOrganizacion.update({ where: { organizacionId_usuarioId: { organizacionId: a.org, usuarioId: a.user } }, data: { activa: false, bajaEn: new Date() } });
   await assert.rejects(a.service.listar(a.org, {})); await assert.rejects(a.service.guardar(a.org, p.id, data)); pass("Membresía dada de baja rechazada");
-  const anonymous = crearServicioProductos(db, crearAutorizacion({ getUser: async () => null, findMemberships: async () => { throw Error("No consultar sin sesión"); } }).exigirOrganizacion);
+  const anonymous = crearServicioProductos(db, crearAutorizacion({ getUser: async () => null, findMemberships: async () => { throw Error("No consultar sin sesión"); }, evaluarPerfil: async () => "COMPLETO" }).exigirOrganizacion);
   await assert.rejects(anonymous.listar(a.org, {}), e => e.code === "NO_AUTENTICADO");
   await assert.rejects(anonymous.guardar(a.org, undefined, data), e => e.code === "NO_AUTENTICADO"); pass("Usuario sin sesión rechazado");
   console.log(`RESULTADO: ${passed} pruebas de productos aprobadas`);

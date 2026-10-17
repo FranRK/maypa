@@ -89,13 +89,16 @@ export function crearServicioVentas(db: PrismaClient, autorizar: typeof exigirOr
       const filtros = filtrosSchema.parse(input), where = { organizacionId: context.organizacion.id };
       const total = await db.venta.count({ where }), paginas = Math.max(1, Math.ceil(total / 20)), pagina = Math.min(filtros.pagina, paginas);
       const ventas = await db.venta.findMany({ where, orderBy: [{ creadaEn: "desc" }, { id: "desc" }], take: 20, skip: (pagina-1)*20,
-        select: { id: true, total: true, estado: true, creadaEn: true, creadaPor: true } });
+        // El autor sale de la membresía de la organización autorizada (relación compuesta).
+        select: { id: true, total: true, estado: true, creadaEn: true, creadaPor: true,
+          creador: { select: { perfil: { select: { nombre: true, apellido: true } } } } } });
       return { context, ventas, total, paginas, pagina };
     },
     async detalle(organizacionId: string | undefined, id: string) {
       const context = await autorizar(organizacionId, "VER_VENTAS");
       const venta = await db.venta.findFirst({ where: { organizacionId: context.organizacion.id, id: uuid.parse(id) },
-        include: { detalles: { orderBy: { productoId: "asc" }, include: { producto: { select: { nombre: true, sku: true, unidad: true } }, movimientos: { select: { id: true, tipo: true, variacion: true } } } } } });
+        include: { creador: { select: { perfil: { select: { nombre: true, apellido: true } } } },
+          detalles: { orderBy: { productoId: "asc" }, include: { producto: { select: { nombre: true, sku: true, unidad: true } }, movimientos: { select: { id: true, tipo: true, variacion: true } } } } } });
       if (!venta) throw new VentaError("Venta no disponible en esta organización.");
       return { context, venta };
     },

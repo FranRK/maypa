@@ -39,6 +39,10 @@ enum TipoMovimiento {
 
 model Perfil {
   id       String   @id @db.Uuid
+  // Obligatorios desde la fase 2 (migración 20261018000000): la base impone
+  // NOT NULL y el CHECK de contenido no vacío, en sincronía con este modelo.
+  nombre   String
+  apellido String
   creadoEn DateTime @default(now())
 
   // La FK hacia auth.users(id) se conserva en el SQL personalizado.
@@ -150,6 +154,10 @@ model DetalleVenta {
   cantidad       Decimal @db.Decimal(14, 3)
   precioUnitario Decimal @db.Decimal(14, 2)
   subtotal       Decimal @db.Decimal(14, 2)
+  // Nombre y SKU del producto al momento de la venta. Quedan en NULL en las ventas
+  // anteriores a la etapa 10: no se rellenan desde el catálogo actual.
+  nombreProducto String?
+  skuProducto    String?
 
   venta              Venta               @relation(fields: [organizacionId, ventaId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)
   producto           Producto            @relation(fields: [organizacionId, productoId], references: [organizacionId, id], onDelete: Restrict, onUpdate: Restrict)

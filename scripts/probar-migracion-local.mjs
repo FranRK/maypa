@@ -96,7 +96,14 @@ try {
   const hash = "a".repeat(64);
   // Fixtures de Auth sin contrasenas ni sesiones: dos UUID dentro de ROLLBACK.
   await client.query("INSERT INTO auth.users(id) VALUES ($1),($2)", [userA,userB]);
-  for (const id of [userA,userB]) await insert("Perfil", {id});
+  // Etapa 10: public."Perfil" suma "nombre" y "apellido" (fase 1) y los vuelve
+  // obligatorios (fase 2). Este script solo puede correr sobre una base VACIA con TODAS
+  // las migraciones aplicadas: al aplicar la etapa 10 hay que revisar tambien las
+  // expectativas de historia (una sola migracion) y de conteo de CHECK (17).
+  // Ver docs/etapa-10-perfil-nombre-detalle-historico.md.
+  for (const [id,apellido] of [[userA,"Migracion A"],[userB,"Migracion B"]]) {
+    await insert("Perfil", {id,nombre:"Prueba",apellido});
+  }
   await insert("Organizacion", {id:orgA,nombre:"Empresa ficticia A",slug:"prueba-a"});
   await insert("Organizacion", {id:orgB,nombre:"Empresa ficticia B",slug:"prueba-b"});
   await insert("MiembroOrganizacion", {organizacionId:orgA,usuarioId:userA});
@@ -116,7 +123,7 @@ try {
   await insert("MovimientoStock", {id:randomUUID(),organizacionId:orgA,productoId:prodA,usuarioId:userA,tipo:"DEVOLUCION",variacion:1,detalleDevolucionId:returnLine,movimientoCompensadoId:movementA});
   pass("Fixtures validas: dos empresas, ventas, stock y compensacion de devolucion");
 
-  await rejects("Perfil sin usuario Auth", "23503", 'INSERT INTO public."Perfil"(id) VALUES ($1)', [randomUUID()]);
+  await rejects("Perfil sin usuario Auth", "23503", 'INSERT INTO public."Perfil"(id,"nombre","apellido") VALUES ($1,\'Prueba\',\'Migracion\')', [randomUUID()]);
   await rejects("Autor de venta de otra empresa", "23503", 'UPDATE public."Venta" SET "creadaPor"=$1 WHERE id=$2', [userB,saleA]);
   await rejects("Producto de otra empresa en venta", "23503", 'UPDATE public."DetalleVenta" SET "productoId"=$1 WHERE id=$2', [prodB,lineA]);
   await rejects("Saldo con producto de otra empresa", "23503", 'UPDATE public."SaldoStock" SET "productoId"=$1 WHERE "organizacionId"=$2', [prodB,orgA]);

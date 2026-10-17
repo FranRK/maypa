@@ -106,12 +106,20 @@ garantizadas por la base. Todo escritor futuro debe usar la misma estrategia.
 
 Los nombres, SKU y unidad mostrados en ventas históricas son los del producto actual;
 el esquema conserva como históricos cantidad, precio y subtotal, no esos textos.
-El autor histórico es el UUID de la membresía (Perfil no tiene nombre/email).
+La etapa 10 tiene preparado —sin aplicar— el SQL y la estrategia de visualización
+para capturar el nombre y el SKU al momento de vender, sin rellenar las ventas ya
+registradas: ver `docs/etapa-10-perfil-nombre-detalle-historico.md`.
+El autor histórico es el UUID de la membresía (Perfil no tiene nombre/email); desde
+la etapa 9 se muestra como correo propio o como "Empleado" abreviado, con el UUID
+completo disponible, y el nombre real llega con la etapa 10.
 No hay moneda en el esquema; los importes siguen la unidad monetaria que ya usa
 el catálogo, sin añadir impuestos, pagos ni conversión.
 
-Pendiente: revisión visual manual de escritorio/celular y accesibilidad con navegador;
-recuperación de borradores; moneda/política fiscal futura; rol de BD mínimo.
+Pendiente: recuperación de borradores; moneda/política fiscal y formato regional de
+importes (la etapa 9 mantiene `toFixed(2)` a propósito); rol de BD mínimo.
+La revisión visual manual de escritorio/celular y la verificación del foco y del
+desplazamiento posterior a confirmar quedaron hechas en la etapa 9 (ver
+`docs/etapa-9-dashboard.md`).
 La SUM del historial por producto favorece consistencia pero puede requerir revisión
 de rendimiento cuando crezca el historial. El listado usa offset, sin snapshot entre
 páginas. Ninguno de estos puntos autoriza cambios contra Supabase Cloud.

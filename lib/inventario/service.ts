@@ -82,7 +82,9 @@ export function crearServicioInventario(db: PrismaClient, autorizar: typeof exig
       const historialPagina = Math.min(filtros.historialPagina, historialPaginas);
       // Select explícito permite consultar mientras la migración adicional está pendiente.
       const historial = await db.movimientoStock.findMany({ where, orderBy: [{ creadoEn: "desc" }, { id: "desc" }], take: 20, skip: (historialPagina - 1) * 20,
-        select: { id: true, creadoEn: true, usuarioId: true, tipo: true, variacion: true, nota: true, producto: { select: { nombre: true, sku: true, unidad: true } } },
+        select: { id: true, creadoEn: true, usuarioId: true, tipo: true, variacion: true, nota: true, producto: { select: { nombre: true, sku: true, unidad: true } },
+          // El autor sale de la membresía de la organización autorizada (relación compuesta).
+          autor: { select: { perfil: { select: { nombre: true, apellido: true } } } } },
       });
       return { context, productos, historial, total: conteo.total, paginas, historialTotal, historialPaginas,
         filtros: { ...filtros, pagina, historialPagina }, escrituraDisponible: await escrituraDisponible() };

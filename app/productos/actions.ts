@@ -8,6 +8,7 @@ import { AutorizacionError } from "@/lib/auth/policy";
 export type EstadoFormulario = { mensaje?: string; ok?: boolean; errores?: Record<string, string[]> };
 function errorFormulario(error: unknown): EstadoFormulario {
   if (error instanceof z.ZodError) return { mensaje: "Revisá los campos indicados.", errores: z.flattenError(error).fieldErrors };
+  if (error instanceof AutorizacionError && error.code === "PERFIL_INCOMPLETO") return { mensaje: "Tu perfil no tiene nombre y apellido cargados: completalos para poder operar." };
   if (error instanceof AutorizacionError) return { mensaje: "No tenés una sesión o membresía con permisos para esta operación." };
   if (error instanceof ProductoError) return { mensaje: error.message };
   if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {

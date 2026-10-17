@@ -3,14 +3,17 @@
 ## Iniciar la aplicacion y preparar el primer usuario
 
 1. Tener Supabase Docker local en marcha. Ejecutar npm run dev:local.
-2. Abrir http://127.0.0.1:3000/auth/sign-up y registrar el email y la contrasena
-   que elijas. La plantilla usa Supabase Auth; no se guardan contrasenas propias.
+2. Abrir http://127.0.0.1:3000/auth/sign-up y registrar nombre, apellido, email y
+   contrasena. La plantilla usa Supabase Auth; no se guardan contrasenas propias.
    La configuracion local existente no exige confirmacion; si la activas, usar
    el correo local (http://127.0.0.1:54324) para confirmar la cuenta.
-3. Ejecutar npm run seed:local -- --email <email-registrado-localmente>.
-   El argumento es el email, nunca la contrasena. El script obtiene la clave
+3. Ejecutar npm run seed:local -- --email <email-registrado-localmente>
+   --nombre <nombre> --apellido <apellido>.
+   El email y los datos de la persona, nunca la contrasena. El nombre y el apellido
+   son obligatorios y no se derivan del correo. El script obtiene la clave
    admin de Supabase status solo en memoria, verifica que el usuario local
    exista y este confirmado, y crea Perfil, Organizacion y MiembroOrganizacion.
+   Detalles en docs/etapa-10-perfil-nombre-detalle-historico.md.
 4. Abrir /auth/login e iniciar sesion. El destino es /dashboard. Si ya estabas
    autenticado, recargar /dashboard despues de ejecutar el seed.
 
@@ -109,14 +112,16 @@ que se implemente en una etapa posterior. Cloud no se consulto ni modifico.
 
 ## Pruebas ejecutadas
 
-- npm run test:auth: codigo 0, nueve pruebas unitarias. Cubren anonimo, sin
+- npm run test:auth: codigo 0, catorce pruebas unitarias. Cubren anonimo, sin
   organizacion, activo, baja, A/B, permiso exclusivo de propietario, identidad
-  incorrecta/UUID invalido, baja consultada de nuevo en cada operacion y destinos
-  internos seguros para la confirmacion de Auth.
-- npm run test:auth:local: codigo 0, once comprobaciones contra Auth local,
+  incorrecta/UUID invalido, baja consultada de nuevo en cada operacion, destinos
+  internos seguros para la confirmacion de Auth y, desde la etapa 10, el perfil
+  incompleto: sin operaciones comerciales, lectura permitida, estructura sin las
+  columnas nuevas y orden de las validaciones.
+- npm run test:auth:local: codigo 0, doce comprobaciones contra Auth local,
   cookies SSR, Next HTTP y Prisma/PostgreSQL reales. Login, redireccion anonima,
-  formulario existente, seed repetido, sin membresia, activo, A/B, baja,
-  EMPLEADO frente a permiso de propietario, privilegios y logout.
+  formulario existente, seed repetido, metadata de nombre y apellido, sin membresia,
+  activo, A/B, baja, EMPLEADO frente a permiso de propietario, privilegios y logout.
 - La prueba comprueba que URI PostgreSQL y clave admin no aparezcan en HTML.
   Crea cuentas mediante Auth Admin local con contrasenas aleatorias en memoria;
   elimina solo sus usuarios/perfiles/membresias/organizaciones al terminar.
