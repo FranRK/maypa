@@ -69,7 +69,10 @@ export function crearServicioVentas(db: PrismaClient, autorizar: typeof exigirOr
         const detalles = data.items.map((i,index) => {
           const subtotal = subtotalVenta(i.cantidad, precios[index].precioUnitario);
           total = total.add(subtotal);
-          return { ...i, precioUnitario: precios[index].precioUnitario, subtotal: subtotal.toFixed(2) };
+          // Nombre y SKU del producto tal como estaban bajo el bloqueo: quedan
+          // congelados en el DetalleVenta y no cambian si el catálogo cambia después.
+          return { ...i, precioUnitario: precios[index].precioUnitario, subtotal: subtotal.toFixed(2),
+            nombreProducto: productos[index].nombre, skuProducto: productos[index].sku };
         });
         if (total.gt(maxImporte)) throw new VentaError("El total supera el importe máximo permitido.");
         const venta = await tx.venta.create({ data: { organizacionId: org, creadaPor: context.user.id, estado: "CONFIRMADA", confirmadaEn: new Date(),
@@ -90,8 +93,12 @@ export function crearServicioVentas(db: PrismaClient, autorizar: typeof exigirOr
       const total = await db.venta.count({ where }), paginas = Math.max(1, Math.ceil(total / 20)), pagina = Math.min(filtros.pagina, paginas);
       const ventas = await db.venta.findMany({ where, orderBy: [{ creadaEn: "desc" }, { id: "desc" }], take: 20, skip: (pagina-1)*20,
         // El autor sale de la membresía de la organización autorizada (relación compuesta).
+        // Los renglones traen el nombre/SKU históricos y, para las ventas anteriores a la
+        // etapa 10, el producto actual acotado a la organización autorizada.
         select: { id: true, total: true, estado: true, creadaEn: true, creadaPor: true,
-          creador: { select: { perfil: { select: { nombre: true, apellido: true } } } } } });
+          creador: { select: { perfil: { select: { nombre: true, apellido: true } } } },
+          detalles: { orderBy: { productoId: "asc" },
+            select: { id: true, nombreProducto: true, skuProducto: true, producto: { select: { nombre: true, sku: true } } } } } });
       return { context, ventas, total, paginas, pagina };
     },
     async detalle(organizacionId: string | undefined, id: string) {

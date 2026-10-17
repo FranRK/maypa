@@ -12,6 +12,7 @@ import { formatearImporte } from "@/lib/importes";
 import { NavPrincipal } from "@/components/nav-principal";
 import { Autor } from "@/components/autor";
 import { Badge } from "@/components/ui/badge";
+import { lineaProducto } from "@/lib/ventas/historico";
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ organizacion?: string | string[] }> };
 async function Contenido({ params, searchParams }: Props) {
   const [{ id }, filtros] = await Promise.all([params, searchParams]);
@@ -32,11 +33,17 @@ async function Contenido({ params, searchParams }: Props) {
     <Link href={`/ventas?organizacion=${org}`} className="inline-flex h-11 items-center underline sm:h-9">Volver a ventas</Link>
     <div><p className="text-muted-foreground">{context.organizacion.nombre}</p><h1 className="text-2xl font-semibold">Venta del {formatearFechaHora(venta.creadaEn)}</h1><div className="mt-2"><Badge>{ETIQUETAS_ESTADO_VENTA[venta.estado]}</Badge></div></div>
     <p className="text-sm">Empleado: <Autor usuarioId={venta.creadaPor} perfil={venta.creador.perfil} sesion={sesion} /></p>
-    {venta.detalles.map(d => <article key={d.id} className="grid gap-2 rounded-xl border p-4">
-      <h2 className="break-words font-semibold">{d.producto.nombre} · {d.producto.sku}</h2>
-      <p className="flex flex-wrap items-baseline gap-x-1 tabular-nums">{d.cantidad.toFixed(3)} {d.producto.unidad} × {formatearImporte(d.precioUnitario.toFixed(2))} = <span className="font-medium">{formatearImporte(d.subtotal.toFixed(2))}</span></p>
-      {d.movimientos.map(m => <p key={m.id} className="text-sm text-muted-foreground">{ETIQUETAS_TIPO_MOVIMIENTO[m.tipo]}: {m.variacion.toFixed(3)} {d.producto.unidad}</p>)}
-    </article>)}
+    {venta.detalles.map(d => {
+      // Se prefiere el nombre y el SKU históricos; si la venta es anterior a la etapa 10
+      // (ambos NULL), se muestran los datos actuales avisando que pueden haber cambiado.
+      const linea = lineaProducto(d);
+      return <article key={d.id} className="grid gap-2 rounded-xl border p-4">
+        <h2 className="break-words font-semibold">{linea.nombre} · {linea.sku}</h2>
+        {!linea.historico ? <p className="text-sm text-muted-foreground">Datos actuales del producto; pueden haber cambiado desde la venta.</p> : null}
+        <p className="flex flex-wrap items-baseline gap-x-1 tabular-nums">{d.cantidad.toFixed(3)} {d.producto.unidad} × {formatearImporte(d.precioUnitario.toFixed(2))} = <span className="font-medium">{formatearImporte(d.subtotal.toFixed(2))}</span></p>
+        {d.movimientos.map(m => <p key={m.id} className="text-sm text-muted-foreground">{ETIQUETAS_TIPO_MOVIMIENTO[m.tipo]}: {m.variacion.toFixed(3)} {d.producto.unidad}</p>)}
+      </article>;
+    })}
     <p className="text-2xl font-semibold tabular-nums">Total: {formatearImporte(venta.total.toFixed(2))}</p><p className="text-sm text-muted-foreground">Precios históricos conservados. Las ventas confirmadas no se pueden editar ni eliminar.</p>
   </main>;
 }

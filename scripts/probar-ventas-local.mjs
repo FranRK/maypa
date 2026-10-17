@@ -82,6 +82,7 @@ try {
   assert.equal(venta.detalles[0].movimientos.length,1); assert.equal(venta.detalles[0].movimientos[0].variacion.toString(),"-2"); assert.equal(venta.detalles[0].movimientos[0].tipo,"VENTA"); await integridad(a,p); pass("Movimientos VENTA vinculados al detalle y saldo igual al historial");
   const multi=await a.ventas.registrar(a.org,await solicitud(a,[item(p),item(q,"0.005")]));
   const md=await a.ventas.detalle(a.org,multi.id); assert.equal(md.venta.total.toFixed(2),"2.51"); assert.equal(md.venta.detalles.length,2); assert.equal(await saldo(a,q),"9.995"); pass("Varios productos y redondeo HALF_UP por renglón, cantidades exactas");
+  assert.ok(md.venta.detalles.every(d=>d.nombreProducto===p.nombre)); assert.deepEqual(md.venta.detalles.map(d=>d.skuProducto).sort(),[p.sku,q.sku].sort()); pass("Varios productos: cada renglón conserva su nombre y SKU históricos");
   const before=await conteos(a);
   await assert.rejects(a.ventas.cotizar(a.org,[item(p,"999")]));
   await assert.rejects(a.ventas.registrar(a.org,{...command,claveIdempotencia:randomUUID(),items:[item(p,"999")]}));
@@ -95,6 +96,16 @@ try {
   await db.producto.update({where:{id:p.id},data:{precioVenta:"9.99"}});
   assert.equal((await a.ventas.detalle(a.org,first.id)).venta.detalles[0].precioUnitario.toFixed(2),"2.50");
   const repeat=await a.ventas.registrar(a.org,command); assert.equal(repeat.id,first.id); assert.equal(repeat.repetido,true); pass("Precio histórico y reintento conservados después de cambiar el catálogo");
+  // Etapa 10, fase 3: nombre y SKU históricos del producto, inmutables tras confirmar.
+  assert.equal((await a.ventas.detalle(a.org,first.id)).venta.detalles[0].nombreProducto,p.nombre); assert.equal((await a.ventas.detalle(a.org,first.id)).venta.detalles[0].skuProducto,p.sku); pass("Confirmar la venta conserva nombre y SKU del producto en el DetalleVenta");
+  const hist=await db.producto.create({data:{organizacionId:a.org,sku:randomUUID(),nombre:"Nombre histórico único",precioVenta:"2.50",stockMinimo:"0"}});
+  await a.inventario.registrar(a.org,{productoId:hist.id,tipo:"INICIAL",cantidad:"5",nota:"",claveIdempotencia:randomUUID()});
+  const histSale=await a.ventas.registrar(a.org,await solicitud(a,[item(hist,"1")]));
+  const histAntes=(await a.ventas.detalle(a.org,histSale.id)).venta.detalles[0];
+  assert.equal(histAntes.nombreProducto,"Nombre histórico único"); assert.equal(histAntes.skuProducto,hist.sku);
+  await db.producto.update({where:{id:hist.id},data:{nombre:"Producto renombrado",sku:"SKU-RENOMBRADO"}});
+  const histDespues=(await a.ventas.detalle(a.org,histSale.id)).venta.detalles[0];
+  assert.equal(histDespues.nombreProducto,"Nombre histórico único"); assert.equal(histDespues.skuProducto,hist.sku); pass("Cambiar el nombre o el SKU del catálogo no altera los históricos de la venta confirmada");
   await assert.rejects(a.ventas.registrar(a.org,{...command,items:[item(p,"3")]})); pass("Misma clave con contenido diferente rechazada");
   const repriced=await solicitud(a,[item(q)]); await db.producto.update({where:{id:q.id},data:{precioVenta:"2"}});
   await assert.rejects(a.ventas.registrar(a.org,repriced),/Cambiaron los precios/); pass("Cambio de precio requiere nueva revisión antes de confirmar");
@@ -131,11 +142,20 @@ try {
   if(process.argv.includes("--http")) {
     const unauth=await page("/ventas"); assert.ok([303,307,308].includes(unauth.response.status));
     const own=await page(`/ventas?organizacion=${a.org}`,a); assert.equal(own.response.status,200); assert.ok(own.body.includes("Nueva venta") && own.body.includes("Historial de ventas"));
+    assert.ok(own.body.includes("Nombre histórico único"),"El historial muestra el nombre histórico del producto renombrado");
     assert.ok(!own.body.includes(target.adminKey) && !own.body.includes(target.url));
     const detail=await page(`/ventas/${first.id}?organizacion=${a.org}`,a); assert.ok(detail.body.includes(formatearImporte("5.00")) && detail.body.includes(formatearImporte("2.50")), "El detalle formatea los importes en es-AR/ARS");
     assert.ok(detail.body.includes(`${PERSONA.nombre} ${PERSONA.apellido} (vos)`), "El detalle muestra nombre y apellido del autor");
     assert.ok(!detail.body.includes(a.user), "El detalle no expone el UUID del autor");
     const denied=await page(`/ventas/${first.id}?organizacion=${b.org}`,b); assert.ok(!denied.body.includes(p.sku)); pass("HTTP: página y detalle protegidos, aislamiento y ausencia de secretos");
+    const histPage=await page(`/ventas/${histSale.id}?organizacion=${a.org}`,a);
+    assert.ok(histPage.body.includes("Nombre histórico único") && !histPage.body.includes("Producto renombrado"),"El detalle muestra el nombre histórico del producto renombrado");
+    assert.ok(histPage.body.includes(hist.sku) && !histPage.body.includes("SKU-RENOMBRADO"),"El detalle muestra el SKU histórico");
+    await db.$executeRaw`UPDATE public."DetalleVenta" SET "nombreProducto"=NULL,"skuProducto"=NULL WHERE "ventaId"=${histSale.id}::uuid`;
+    const legacy=await page(`/ventas/${histSale.id}?organizacion=${a.org}`,a);
+    assert.ok(legacy.body.includes("Producto renombrado") && legacy.body.includes("SKU-RENOMBRADO"),"Sin histórico muestra el catálogo actual");
+    assert.ok(legacy.body.includes("pueden haber cambiado"),"Sin histórico avisa que los datos pueden haber cambiado");
+    pass("Ventas anteriores sin histórico muestran el catálogo actual con aviso");
     const ids=await actionIds();
     assert.ok((await action(ids.buscarProductosVenta,a,[a.org,p.sku,1])).includes(p.sku));
     assert.ok((await action(ids.cotizarVenta,a,[a.org,[item(q)]])).includes("revisionPrecios")); pass("HTTP: búsqueda y cotización por Server Actions verificadas");

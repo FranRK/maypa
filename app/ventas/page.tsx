@@ -12,6 +12,7 @@ import { formatearImporte } from "@/lib/importes";
 import { FormularioVenta } from "@/components/ventas/formulario";
 import { NavPrincipal } from "@/components/nav-principal";
 import { Autor } from "@/components/autor";
+import { lineaProducto } from "@/lib/ventas/historico";
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 async function Contenido({ searchParams }: Props) {
@@ -38,11 +39,15 @@ async function Contenido({ searchParams }: Props) {
       ? <p className="rounded-xl border p-5">Completá tu nombre y tu apellido para poder registrar ventas. El historial sigue disponible.</p>
       : <FormularioVenta org={org} clave={randomUUID()} iniciales={catalogo.productos} hayMasInicial={catalogo.hayMas} />}
     <section className="grid gap-3"><h2 className="text-2xl font-semibold">Historial de ventas</h2><p className="text-sm text-muted-foreground">{data.total} ventas · Página {data.pagina} de {data.paginas}</p>
-      {data.ventas.map(v => <article key={v.id} className="grid gap-1 rounded-xl border p-4">
-        <Link href={`/ventas/${v.id}?organizacion=${org}`} className="inline-flex h-11 items-center font-medium underline sm:h-9">Venta del {formatearFechaHora(v.creadaEn)}</Link>
-        <p className="tabular-nums">{ETIQUETAS_ESTADO_VENTA[v.estado]} · Total: {formatearImporte(v.total.toFixed(2))}</p>
-        <p className="text-sm text-muted-foreground">Empleado: <Autor usuarioId={v.creadaPor} perfil={v.creador.perfil} sesion={sesion} /></p>
-      </article>)}
+      {data.ventas.map(v => {
+        const lineas = v.detalles.map(d => ({ id: d.id, ...lineaProducto(d) }));
+        return <article key={v.id} className="grid gap-1 rounded-xl border p-4">
+          <Link href={`/ventas/${v.id}?organizacion=${org}`} className="inline-flex h-11 items-center font-medium underline sm:h-9">Venta del {formatearFechaHora(v.creadaEn)}</Link>
+          <p className="tabular-nums">{ETIQUETAS_ESTADO_VENTA[v.estado]} · Total: {formatearImporte(v.total.toFixed(2))}</p>
+          <ul className="grid gap-0.5 text-sm">{lineas.map(l => <li key={l.id} className="break-words">{l.nombre} · {l.sku}{!l.historico ? <span className="text-muted-foreground"> (datos actuales; pueden haber cambiado)</span> : null}</li>)}</ul>
+          <p className="text-sm text-muted-foreground">Empleado: <Autor usuarioId={v.creadaPor} perfil={v.creador.perfil} sesion={sesion} /></p>
+        </article>;
+      })}
       {!data.ventas.length ? <p className="rounded-xl border p-4">Todavía no hay ventas registradas.</p> : null}
       <nav aria-label="Paginación de ventas" className="flex justify-between">{data.pagina > 1 ? <Link className="inline-flex h-11 items-center underline sm:h-9" href={`/ventas?organizacion=${org}&pagina=${data.pagina-1}`}>Anterior</Link> : <span />}{data.pagina < data.paginas ? <Link className="inline-flex h-11 items-center underline sm:h-9" href={`/ventas?organizacion=${org}&pagina=${data.pagina+1}`}>Siguiente</Link> : null}</nav>
     </section>

@@ -15,9 +15,11 @@ export async function bloquearClave(tx: Tx, clave: string) {
   await tx.$queryRaw`SELECT 1 AS bloqueado FROM pg_advisory_xact_lock(hashtextextended(${clave},0))`;
 }
 // Todos los escritores bloquean producto antes que saldo. Varios productos: ordenar por UUID.
+// Devuelve tambien nombre y sku para que la venta pueda conservar el dato historico
+// dentro de la misma transaccion y bajo el mismo bloqueo.
 export async function bloquearProducto(tx: Tx, org: string, producto: string) {
-  const [fila] = await tx.$queryRaw<{ activo: boolean; precioVenta: Prisma.Decimal }[]>`
-    SELECT activo,"precioVenta" FROM public."Producto" WHERE "organizacionId"=${org}::uuid AND id=${producto}::uuid FOR UPDATE`;
+  const [fila] = await tx.$queryRaw<{ activo: boolean; precioVenta: Prisma.Decimal; nombre: string; sku: string }[]>`
+    SELECT activo,"precioVenta",nombre,sku FROM public."Producto" WHERE "organizacionId"=${org}::uuid AND id=${producto}::uuid FOR UPDATE`;
   if (!fila?.activo) throw new InventarioError("Producto inactivo o no disponible en esta organización.");
   return fila;
 }
